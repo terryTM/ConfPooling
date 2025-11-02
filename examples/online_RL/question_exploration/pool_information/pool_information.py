@@ -66,13 +66,14 @@ def build_follow_up_question(current_answer, current_count, other_answers, answe
     # 1️⃣ 整理其他答案内容
     other_lines = []
     for i, (ans, text) in enumerate(other_answers.items(), start=1):
-        # count_info = f"(supported by {answer_counts.get(ans, 1)} traces)"
-        other_lines.append(f"{i}. Candidate answer {ans}:\n{text.strip()}\n")
+        count_info = f"(supported by {answer_counts.get(ans, 1)} traces)"
+        other_lines.append(f"{i}. Candidate answer {ans} {count_info}:\n{text.strip()}\n")
     other_answers_text = "\n".join(other_lines)
 
     # 2️⃣ 主体 prompt
     follow_up_question = f"""
-Previously, you concluded the final answer was: {current_answer}.
+Previously, you concluded the final answer was: {current_answer} 
+(supported by {current_count} trace{'s' if current_count > 1 else ''}).
 
 Below are other candidate answers produced by other independent reasoning traces, each with a short summary of its reasoning and the number of traces that reached it:
 {other_answers_text}

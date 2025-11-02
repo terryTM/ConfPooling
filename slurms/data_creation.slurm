@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --time=19:00:00
 #SBATCH --output=logs/%A_%a.log
-#SBATCH --array=25-29
+#SBATCH --array=0
 
 # ---- 1. 加载必要模块 ----
 module load CUDA/12.8.0

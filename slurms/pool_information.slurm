@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --time=8:00:00
 #SBATCH --output=logs/%A_%a.log
-#SBATCH --array=0-6
+#SBATCH --array=0-3
 
 # ---- 1. 加载必要模块 ----
 module load CUDA/12.8.0
@@ -23,7 +23,7 @@ nvidia-smi
 # ---- 4. 运行程序，使用数组索引当作 qid ----
 QID=${SLURM_ARRAY_TASK_ID}
 DATASET_NAME="hmmt_2025"
-OUT_DIR="data/processed/${DATASET_NAME}/pool_information_v2"
+OUT_DIR="data/processed/${DATASET_NAME}/pool_information_v1"
 OUT_PATH="${OUT_DIR}/${DATASET_NAME}_${QID}_deepconflow_self_check.jsonl"
 
 if [ -f "$OUT_PATH" ]; then
