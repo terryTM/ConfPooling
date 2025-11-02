@@ -5,22 +5,90 @@ import pandas as pd
 from pathlib import Path
 
 # ========== 配置部分 ==========
-DATA_NAME = "brumo_2025"
-BASE_DIR = Path(f"/home/yz54720/Projects/Method/deepconf/data/processed/{DATA_NAME}/pool_information_v1")
+DATA_NAME = "hmmt_2025"
+BASE_DIR = Path(f"/home/yz54720/Projects/Method/deepconf/data/processed/{DATA_NAME}/pool_information_v2")
 AIME_DATA_PATH = Path(f"/home/yz54720/Projects/Method/deepconf/data/raw/{DATA_NAME}.jsonl")
 OUTPUT_CSV = BASE_DIR / "followup_evaluation_summary.csv"
 FILE_PATTERN = f"{DATA_NAME}_*_deepconflow_self_check.jsonl"
 
 # ========== 工具函数 ==========
+import re
+import regex  # pip install regex
 
+
+
+def clean_latex_answer(ans: str) -> str:
+    """清洗 LaTeX 表达式：去空格、去 a= 等、标准化 \\dfrac"""
+    if not ans:
+        return ans
+
+    # 去掉 LaTeX 空格命令（\ , \quad, \qquad 等）
+    ans = re.sub(r"\\(?:,|;|:|!|quad|qquad|enspace|,| )", "", ans)
+    
+    # 去掉所有普通空格
+    ans = re.sub(r"\s+", "", ans)
+    
+    # 将 \dfrac 转为 \frac
+    ans = ans.replace(r"\dfrac", r"\frac")
+    
+    # 去掉形如 a=、x=、y= 等赋值
+    ans = re.sub(r"\b[a-zA-Z]\s*=", "", ans)
+    
+    # 去掉可能的多余逗号空位，比如 "2,,3" → "2,3"
+    ans = re.sub(r",+", ",", ans)
+    
+    # 去掉首尾逗号
+    ans = ans.strip(",")
+    
+    return ans
 def extract_boxed_answer(text: str):
-    """从模型输出中提取 \\boxed{} 内的最终答案"""
+    """提取文本中最后一个 \\boxed{...} 的内容（支持任意嵌套 {}）并清洗"""
     if not text:
         return None
-    match = re.search(r"\\boxed\{([^}]*)\}", text)
-    if match:
-        return match.group(1).strip()
-    return None
+
+    results = []
+    pos = 0
+    while True:
+        start = text.find(r'\boxed{', pos)
+        if start == -1:
+            break  # 没有更多了
+
+        i = start + len(r'\boxed{')
+        depth = 1
+        content_chars = []
+
+        while i < len(text) and depth > 0:
+            ch = text[i]
+            if ch == '{':
+                depth += 1
+                content_chars.append(ch)
+            elif ch == '}':
+                depth -= 1
+                if depth > 0:
+                    content_chars.append(ch)
+            else:
+                content_chars.append(ch)
+            i += 1
+
+        if depth == 0:
+            results.append(''.join(content_chars))
+            pos = i  # 从上次结束后继续查找
+        else:
+            break  # 不完整，结束循环
+
+    if not results:
+        return None
+
+    # 返回最后一个
+    return clean_latex_answer(results[-1])
+# def extract_boxed_answer(text: str):
+#     """从模型输出中提取 \\boxed{} 内的最终答案"""
+#     if not text:
+#         return None
+#     match = re.search(r"\\boxed\{([^}]*)\}", text)
+#     if match:
+#         return match.group(1).strip()
+#     return None
 
 
 def parse_jsonl(file_path):
@@ -48,6 +116,7 @@ def extract_followup_answers(jsonl_path, qid):
         original = rec.get("base_answer", None)
         followup_text = rec.get("trace_2", "")
         followup_ans = extract_boxed_answer(followup_text)
+        original = clean_latex_answer(original)
         results.append({
             "question_id": qid,
             "original_answer": original,
