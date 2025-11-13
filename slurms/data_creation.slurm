@@ -7,9 +7,10 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --time=19:00:00
 #SBATCH --output=logs/%A_%a.log
-#SBATCH --array=0
+#SBATCH --array=19-29
 
 # ---- 1. 加载必要模块 ----
+source ~/.bashrc
 module load CUDA/12.8.0
 
 # ---- 2. 激活虚拟环境 ----
@@ -25,7 +26,7 @@ date
 # ======================
 # 🔹 Trace 分批生成逻辑
 # ======================
-DATASET_NAME="hmmt_2025"
+DATASET_NAME="aime_2025"
 DATASET="/home/yz54720/Projects/Method/deepconf/data/raw/${DATASET_NAME}.jsonl"
 QID=${SLURM_ARRAY_TASK_ID}
 OUTDIR="/home/yz54720/Projects/Method/deepconf/data/processed/${DATASET_NAME}/traces"

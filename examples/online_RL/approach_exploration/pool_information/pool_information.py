@@ -260,7 +260,8 @@ def main():
             # 查询traces数量中最大的五个数
             answer_number_sorted = sorted(set(counts.values()), reverse=True)
             print(answer_number_sorted[:min(5, len(answer_number_sorted))])
-            top5_answers = [ans for ans, cnt in counts.items() if cnt in answer_number_sorted[:min(5, len(answer_number_sorted))]]
+            top5_anc = {ans:cnt for ans, cnt in counts.items() if cnt in answer_number_sorted[:min(5, len(answer_number_sorted))]}
+            top5_answers = list(top5_anc.keys())
             filtered_traces = [t for t in predicted_good if t.get("answer") in top5_answers]
 
             print(f"\n✅ Kept {len(filtered_traces)} traces belonging to top 5 answers, answers are: {top5_answers}")
@@ -302,7 +303,7 @@ def main():
                 other_answers_text[ans] = ans_only
 
             # 3. 准备我们的追问
-            follow_up_question = build_follow_up_question(current_answer, current_answer_number, other_answers_text, dict(counts.most_common(5)))
+            follow_up_question = build_follow_up_question(current_answer, current_answer_number, other_answers_text, top5_anc)
             # 4. 构建包含完整历史的消息列表
             #    [user_q1, assistant_a1, user_q2]
             messages_turn_2 = [

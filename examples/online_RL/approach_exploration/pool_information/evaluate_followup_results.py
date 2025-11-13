@@ -5,7 +5,7 @@ import pandas as pd
 from pathlib import Path
 
 # ========== 配置部分 ==========
-DATA_NAME = "hmmt_2025"
+DATA_NAME = "brumo_2025"
 BASE_DIR = Path(f"/home/yz54720/Projects/Method/deepconf/data/processed/{DATA_NAME}/pool_information_v2")
 AIME_DATA_PATH = Path(f"/home/yz54720/Projects/Method/deepconf/data/raw/{DATA_NAME}.jsonl")
 OUTPUT_CSV = BASE_DIR / "followup_evaluation_summary.csv"
