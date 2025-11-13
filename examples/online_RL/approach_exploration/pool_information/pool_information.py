@@ -66,6 +66,8 @@ def build_follow_up_question(current_answer, current_count, other_answers, answe
     # 1️⃣ 整理其他答案内容
     other_lines = []
     for i, (ans, text) in enumerate(other_answers.items(), start=1):
+        if ans not in answer_counts.keys():
+            print(f"⚠️ Warning: answer {ans!r} not found in answer_counts.")
         count_info = f"(supported by {answer_counts.get(ans, 1)} traces)"
         other_lines.append(f"{i}. Candidate answer {ans} {count_info}:\n{text.strip()}\n")
     other_answers_text = "\n".join(other_lines)
@@ -264,7 +266,8 @@ def main():
             top5_answers = list(top5_anc.keys())
             filtered_traces = [t for t in predicted_good if t.get("answer") in top5_answers]
 
-            print(f"\n✅ Kept {len(filtered_traces)} traces belonging to top 5 answers, answers are: {top5_answers}")
+            print(f"\n✅ Delete {len(predicted_good) - len(filtered_traces)} traces not belonging to top 5 answers, deleted answers are: {set(t.get('answer') for t in predicted_good) - set(top5_answers)}")
+            print(f"top5_answers: {top5_answers}")
         else:
             print("No predicted good traces found.")
         predicted_good = filtered_traces
@@ -282,15 +285,11 @@ def main():
 
         print("\n=== Generating Self-Check Prompts for Each Candidate Answer ===")
 
-        for current_answer in top5_answers:
-            # 取该答案对应的good traces
+        # for current_answer in top5_answers:
+        for base_trace in filtered_traces:
+            # 取top5答案中的每一个作为当前答案
+            current_answer = base_trace.get("answer")
             current_answer_number = counts[current_answer]
-            same_answer_traces = [t for t in predicted_good if t.get("answer") == current_answer]
-            if not same_answer_traces:
-                continue
-
-            # 随机抽一个trace作为base
-            base_trace = random.choice(same_answer_traces)
             trace_1_string = base_trace.get("text", "(Reasoning trace missing...)")
             # 其他每个答案都抽一个trace，并且从他们的回答中用split_thinking_and_answer提取回答的部分，返回的结果是{}
             other_answers = [ans for ans in top5_answers if ans != current_answer]

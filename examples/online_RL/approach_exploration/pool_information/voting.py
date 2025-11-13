@@ -196,6 +196,8 @@ def main():
 
         # followup voting
         followup_score_c = {}
+        if gt[qid] not in [base_ans for base_ans, _, _ in followups]:
+            print(f"⚠️ QID {qid}: ground truth {gt[qid]!r} not in follow-up base answers.")
         for base_ans, ans, conf in followups:
             if base_ans in top5_anc:
                 cnt = top5_anc[base_ans]
