@@ -6,7 +6,7 @@ from pathlib import Path
 
 # ========== 配置部分 ==========
 DATA_NAME = "brumo_2025"
-BASE_DIR = Path(f"/home/yz54720/Projects/Method/deepconf/data/processed/{DATA_NAME}/pool_information_v2")
+BASE_DIR = Path(f"/home/yz54720/Projects/Method/deepconf/data/processed/{DATA_NAME}/pool_information_v22")
 AIME_DATA_PATH = Path(f"/home/yz54720/Projects/Method/deepconf/data/raw/{DATA_NAME}.jsonl")
 OUTPUT_CSV = BASE_DIR / "followup_evaluation_summary.csv"
 FILE_PATTERN = f"{DATA_NAME}_*_deepconflow_self_check.jsonl"
@@ -89,7 +89,26 @@ def extract_boxed_answer(text: str):
 #     if match:
 #         return match.group(1).strip()
 #     return None
-
+def extract_answer(text: str) -> str:
+    """Extracts the answer from the full text, compatible with deepconf."""
+    if not isinstance(text, str): return None
+    if "boxed" in text:
+        ans = text.split("boxed")[-1]
+        if len(ans) == 0: return ""
+        if ans[0] == "{":
+            stack = 1
+            a = ""
+            for c in ans[1:]:
+                if c == "{": stack += 1; a += c
+                elif c == "}":
+                    stack -= 1
+                    if stack == 0: break
+                    a += c
+                else: a += c
+            return a.strip()
+        else:
+            return ans.split("$")[0].strip()
+    return None
 
 def parse_jsonl(file_path):
     """逐行读取 JSONL 文件"""

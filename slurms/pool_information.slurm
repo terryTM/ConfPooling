@@ -5,9 +5,9 @@
 #SBATCH --ntasks=1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --time=8:00:00
+#SBATCH --time=19:00:00
 #SBATCH --output=logs/%A_%a.log
-#SBATCH --array=0-17
+#SBATCH --array=13
 
 # ---- 1. 加载必要模块 ----
 source ~/.bashrc
@@ -23,7 +23,7 @@ nvidia-smi
 
 # ---- 4. 运行程序，使用数组索引当作 qid ----
 QID=${SLURM_ARRAY_TASK_ID}
-DATASET_NAME="aime_2024"
+DATASET_NAME="aime_2025"
 OUT_DIR="data/processed/${DATASET_NAME}/pool_information_v22"
 OUT_PATH="${OUT_DIR}/${DATASET_NAME}_${QID}_deepconflow_self_check.jsonl"
 

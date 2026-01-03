@@ -56,24 +56,35 @@ def load_concatenated_json(file_path):
     
     return final_data
 
-def build_follow_up_question(current_answer, current_count, other_answers, answer_counts):
+def build_follow_up_question(current_answer, current_count, other_answers, answer_counts, max_length, llm):
     """
-    current_answer: str
-    current_count: int
-    other_answers: dict[str, str]  -> 每个答案对应的 reasoning 简要
-    answer_counts: dict[str, int]  -> 每个答案对应的 trace 数
+    动态减少 other_answers_text，使 follow_up_question 长度不超过 max_length。
+    删除顺序：从 trace 数量最少的答案开始删。
     """
-    # 1️⃣ 整理其他答案内容
-    other_lines = []
-    for i, (ans, text) in enumerate(other_answers.items(), start=1):
-        if ans not in answer_counts.keys():
-            print(f"⚠️ Warning: answer {ans!r} not found in answer_counts.")
-        count_info = f"(supported by {answer_counts.get(ans, 1)} traces)"
-        other_lines.append(f"{i}. Candidate answer {ans} {count_info}:\n{text.strip()}\n")
-    other_answers_text = "\n".join(other_lines)
 
-    # 2️⃣ 主体 prompt
-    follow_up_question = f"""
+    # 将 other_answers 按 trace 数量升序排序（少的优先删）
+    sorted_answers = sorted(
+        other_answers.items(), 
+        key=lambda x: answer_counts.get(x[0], 0)
+    )
+
+    # 当前保留的答案列表（ascending order）
+    kept_answers = list(sorted_answers)
+    removed_answers = []
+    while True:
+        # 1️⃣ 构建 other_answers_text
+        other_lines = []
+        for i, (ans, text) in enumerate(kept_answers, start=1):
+            count = answer_counts.get(ans, 1)
+            other_lines.append(
+                f"{i}. Candidate answer {ans} (supported by {count} trace{'s' if count > 1 else ''}):\n{text.strip()}\n"
+            )
+        other_answers_text = "\n".join(other_lines) if other_lines else "(No other candidate answers remain.)"
+        if not other_lines:
+            print('[WARNING] No other candidate answers left to include in the prompt.')
+
+        # 2️⃣ 构建 follow_up_question 文本
+        follow_up_question = f"""
 Previously, you concluded the final answer was: {current_answer} 
 (supported by {current_count} trace{'s' if current_count > 1 else ''}).
 
@@ -96,7 +107,27 @@ After reconsideration:
 Finally, output your decision in the exact format:  
 **FINAL ANSWER: \\boxed{{X}}**
 """
-    return follow_up_question.strip()
+
+        # 3️⃣ 检查 token 数
+        token_len = len(llm.tokenizer.tokenize(follow_up_question))
+        if token_len <= max_length:
+            # 长度合适，结束循环
+            if removed_answers:
+                print(f"[WARNING] Reduced other candidate answers to fit length limit. Removed answers: {[ans for ans, _ in removed_answers]}")
+            return follow_up_question.strip()
+
+        # 4️⃣ 如果太长 → 删除 trace 数最少的答案
+        if len(kept_answers) > 0:
+            removed_answers.append(kept_answers.pop(0))   # 删除一个最少 trace 的
+        else:
+            # 全部删光了还超长，则返回极简提问（保底不报错）
+            print('[WARNING] All candidate answers removed, still exceeding max length.')
+            return (
+                f"Previously, you gave answer: {current_answer}.\n"
+                f"Re-check your reasoning and decide whether you keep it.\n\n"
+                f"FINAL ANSWER: \\boxed{{X}}"
+            )
+
 
 def calculate_token_confs_from_logprobs(logprobs: List[Dict[int, Any]]) -> List[float]:
     """
@@ -191,34 +222,34 @@ def main():
     ######### SCREENING #########
 
     # --- Early Stopping Simulation Configuration ---
-    NUM_CALIBRATION_TRACES = 16
+    NUM_CALIBRATION_TRACES = 64
     USE_LOW_THRESHOLD = False  # True: 10% percentile (lenient), False: 90% percentile (strict)
     random.seed(13)
 
     # --- Calculate Threshold ---
     s = None
+    predicted_good = [] 
     if len(traces) >= NUM_CALIBRATION_TRACES:
-        calibration_traces = random.sample(traces, NUM_CALIBRATION_TRACES)
+        calibration_traces = traces[:NUM_CALIBRATION_TRACES]
         lowest_confs = [min(t['group_confidence']) for t in calibration_traces if t['group_confidence']]
         if lowest_confs:
             s_high = np.percentile(lowest_confs, 10)
-            s_low = np.percentile(lowest_confs, 90)
+            s_low = np.percentile(lowest_confs, 90) # bigger
             s = s_high if USE_LOW_THRESHOLD else s_low
             print(f"--- Early Stopping Simulation ---")
             print(f"Threshold computed from {len(lowest_confs)} calibration samples.")
-            print(f"  - High Threshold (10th percentile): {s_high:.4f}")
+            print(f"  - High Threshold (10th percentile): {s_high:.4f}") 
             print(f"  - Low Threshold (90th percentile): {s_low:.4f}")
             print(f"--- Active Threshold s = {s:.4f} ---")
-
+            # 保留lowest_confs大于s的trace
+            
     # --- Plotting and Confusion Matrix Calculation ---
+    # TODO 修改一下，使得budget逻辑是对齐的（即最后T中有budget条），最好加入consensus
     if s is not None:
-        TP, FP, TN, FN = 0, 0, 0, 0
 
-        predicted_good = []  # ✅ 收集未被截断的 trace
-        predicted_bad = []
-
-        for trace in traces:
-            actual_is_correct = trace['is_correct']
+        remaining_filtered_traces = []
+        remaining_traces = traces[NUM_CALIBRATION_TRACES:]
+        for trace in remaining_traces:
             conf_curve = trace['group_confidence']
 
             stop_indices = np.where(np.array(conf_curve) < s)[0] if conf_curve else []
@@ -226,29 +257,15 @@ def main():
 
             # ✅ 保存分类结果
             if predicted_as_bad:
-                predicted_bad.append(trace)
+                pass
             else:
+                remaining_filtered_traces.append(trace)
+ 
+        predicted_good = remaining_filtered_traces.copy()
+        # 保留calibration中lowest_confs大于s的trace
+        for trace in calibration_traces:
+            if min(trace['group_confidence']) >= s:
                 predicted_good.append(trace)
-            # Update confusion matrix
-            if not actual_is_correct and predicted_as_bad: TP += 1
-            elif actual_is_correct and predicted_as_bad: FP += 1
-            elif actual_is_correct and not predicted_as_bad: TN += 1
-            elif not actual_is_correct and not predicted_as_bad: FN += 1
-        print("Positive Class: 'Bad Trace' (Incorrect Answer)")
-        print("Negative Class: 'Good Trace' (Correct Answer)\n")
-        print(f"{'':<15}{'Predicted: Bad':<20}{'Predicted: Good'}")
-        print(f"{'Actual: Bad':<15}{TP:<20}(TP){FN:<20}(FN)")
-        print(f"{'Actual: Good':<15}{FP:<20}(FP){TN:<20}(TN)")
-        print("-" * 60)
-
-        # Calculate and print metrics
-        accuracy = (TP + TN) / (TP + FP + TN + FN) if (TP + FP + TN + FN) > 0 else 0
-        precision = TP / (TP + FP) if (TP + FP) > 0 else 0
-        recall = TP / (TP + FN) if (TP + FN) > 0 else 0
-
-        print(f"Accuracy: {accuracy:.2%}")
-        print(f"Precision (for bad traces): {precision:.2%}")
-        print(f"Recall (for bad traces): {recall:.2%}")
 
         # --- ✅ Show Predicted Good Answers ---
         print("\n--- Answers from Predicted Good Traces ---")
@@ -258,21 +275,21 @@ def main():
             counts = Counter(good_answers)
             for ans, cnt in counts.most_common(15):  # 只打印前 15 个最常见的
                 print(f"{ans!r:40s}  →  {cnt} traces")
-            # ✅ 仅保留前 5 个最常见答案及其所有 trace
             # 查询traces数量中最大的五个数
             answer_number_sorted = sorted(set(counts.values()), reverse=True)
             print(answer_number_sorted[:min(5, len(answer_number_sorted))])
             top5_anc = {ans:cnt for ans, cnt in counts.items() if cnt in answer_number_sorted[:min(5, len(answer_number_sorted))]}
             top5_answers = list(top5_anc.keys())
-            filtered_traces = [t for t in predicted_good if t.get("answer") in top5_answers]
+            # filtered_traces = [t for t in predicted_good if t.get("answer") in top5_answers]
 
-            print(f"\n✅ Delete {len(predicted_good) - len(filtered_traces)} traces not belonging to top 5 answers, deleted answers are: {set(t.get('answer') for t in predicted_good) - set(top5_answers)}")
-            print(f"top5_answers: {top5_answers}")
+            # print(f"\n✅ Delete {len(predicted_good) - len(filtered_traces)} traces not belonging to top 5 answers, deleted answers are: {set(t.get('answer') for t in predicted_good) - set(top5_answers)}")
+            # print(f"top5_answers: {top5_answers}")
         else:
             print("No predicted good traces found.")
-        predicted_good = filtered_traces
+        
     ########### INITIALIZE DEEP THINK LLM ###########
     # TODO: 不能同时启用两个，不然显存不够
+    # TODO：如果不做online的筛选，直接用raw的前多少个来做pooling会如何
     deep_llm = DeepThinkLLM(model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B")
     # --- 使用已有的 JSONL 数据进行追问 ---
     # 1. 提取第一轮的上下文
@@ -280,14 +297,11 @@ def main():
 
     all_traces_2=[]
     if good_answers:
-        # 所有候选答案
-        # all_candidate_answers = top5_answers
 
         print("\n=== Generating Self-Check Prompts for Each Candidate Answer ===")
 
-        # for current_answer in top5_answers:
-        for base_trace in filtered_traces:
-            # 取top5答案中的每一个作为当前答案
+        # 对所有 predicted good traces 进行追问
+        for base_trace in predicted_good:
             current_answer = base_trace.get("answer")
             current_answer_number = counts[current_answer]
             trace_1_string = base_trace.get("text", "(Reasoning trace missing...)")
@@ -302,7 +316,8 @@ def main():
                 other_answers_text[ans] = ans_only
 
             # 3. 准备我们的追问
-            follow_up_question = build_follow_up_question(current_answer, current_answer_number, other_answers_text, top5_anc)
+            max_length = 131072 - len(deep_llm.tokenizer.tokenize(trace_1_string)) - len(deep_llm.tokenizer.tokenize(question))
+            follow_up_question = build_follow_up_question(current_answer, current_answer_number, other_answers_text, top5_anc, max_length, deep_llm)
             # 4. 构建包含完整历史的消息列表
             #    [user_q1, assistant_a1, user_q2]
             messages_turn_2 = [

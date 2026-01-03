@@ -11,38 +11,6 @@ import argparse
 import ast
 # ===== online screening ======
 
-def online_screening(traces, num_calibration=16, use_low_threshold=False):
-   # True: 10% percentile (lenient), False: 90% percentile (strict)
-    random.seed(13)
-
-    # --- Calculate Threshold ---
-    s = None
-    if len(traces) >= num_calibration:
-        calibration_traces = random.sample(traces, num_calibration)
-        lowest_confs = [min(t['group_confidence']) for t in calibration_traces if t['group_confidence']]
-        if lowest_confs:
-            s_high = np.percentile(lowest_confs, 10)
-            s_low = np.percentile(lowest_confs, 90)
-            s = s_high if use_low_threshold else s_low
-
-    if s is not None:
-
-        predicted_good = []  # ✅ 收集未被截断的 trace
-        predicted_bad = []
-
-        for trace in traces:
-            actual_is_correct = trace['is_correct']
-            conf_curve = trace['group_confidence']
-
-            stop_indices = np.where(np.array(conf_curve) < s)[0] if conf_curve else []
-            predicted_as_bad = len(stop_indices) > 0
-
-            # ✅ 保存分类结果
-            if predicted_as_bad:
-                predicted_bad.append(trace)
-            else:
-                predicted_good.append(trace)
-    return predicted_good
 def load_traces(file_path):
     traces = []
     with open(file_path, "r", encoding="utf-8") as f:
@@ -120,6 +88,26 @@ def extract_boxed_answer(text: str):
 
     # 返回最后一个
     return clean_latex_answer(results[-1])
+def extract_answer(text: str) -> str:
+    """Extracts the answer from the full text, compatible with deepconf."""
+    if not isinstance(text, str): return None
+    if "boxed" in text:
+        ans = text.split("boxed")[-1]
+        if len(ans) == 0: return ""
+        if ans[0] == "{":
+            stack = 1
+            a = ""
+            for c in ans[1:]:
+                if c == "{": stack += 1; a += c
+                elif c == "}":
+                    stack -= 1
+                    if stack == 0: break
+                    a += c
+                else: a += c
+            return a.strip()
+        else:
+            return ans.split("$")[0].strip()
+    return None
 def data_loading(base_dir, dataname, is_followup=False):
     results = defaultdict(list)
     for jsonl_path in base_dir.glob(f"{dataname}_*.jsonl"):
@@ -136,11 +124,10 @@ def data_loading(base_dir, dataname, is_followup=False):
                 if ans:
                     results[qid].append((base_ans, ans, conf))
         else:
-            predicted_good = online_screening(traces)
-            for item in predicted_good:
+            for item in traces:
                 ans = clean_latex_answer(item.get("answer"))
                 # 算一个trace level的confidence
-                conf = np.min(item.get("group_confidence", np.nan))
+                conf = item.get("group_confidence", [])
                 if ans:
                     results[qid].append((ans, conf))
     return results
@@ -149,12 +136,70 @@ def load_ground_truth(path):
     for i, item in enumerate(load_traces(path)):
         gt[i] = str(item.get("answer", "")).strip()
     return gt
+## voting 
 
+def online_voting(traces, num_calibration=16, use_small_threshold=False, consensus_tau=0.95):
+   # True: 10% percentile (lenient), False: 90% percentile (strict)
+    random.seed(13)
+    voting_results = {}
+    for qid, ans_list in traces.items():
+        # traces: list of dict, each dict has keys: 'answer', 'is_correct', 'group_confidence' (list of float)
+        # --- Calculate Threshold ---
+        s = None
+        if len(ans_list) >= num_calibration:
+            # TODO 样本不太够才这样做，应该多添加一些样本，跟文章一样把offline的池子换成4096个的，这样就可以resample了
+            # TODO 还要多跑一些方法
+            # TODO 还要多跑一些数据集
+            # split ans_list into calibration and voting sets
+            calibration_traces = random.sample(ans_list, num_calibration)
+            
+            lowest_confs = [min(t[1]) for t in calibration_traces if t[1]]
+            eta = 10 if use_small_threshold else 90
+            if lowest_confs:
+                # s_high = np.percentile(lowest_confs, 10)
+                # s_low = np.percentile(lowest_confs, 90) # 这个更大
+                s = np.percentile(lowest_confs, eta)
+            # filtered_calibration_traces = [t for t in calibration_traces if min(t[1]) >= s]
+            other_traces = [t for t in ans_list if t not in calibration_traces]
+        if s is not None:
+            # predicted_good = calibration_traces  # ✅ 收集未被截断的 trace
+            
+            totals = defaultdict(float)
+            true_totals = defaultdict(float)
+            for ans, conf in calibration_traces:
+                totals[ans] += conf
+                if conf >= s:
+                    true_totals[ans] += conf
+            for trace in other_traces:
+                # 2. 找到 confidence 总和最大的 answer
+                best_answer = max(totals, key=totals.get)
+                best_conf = totals[best_answer]
+
+                # 3. 计算占总和百分比
+                total_conf_all = sum(totals.values())
+                current_consensus = best_conf / total_conf_all
+                # ✅ 提前停止
+                if current_consensus >= consensus_tau:
+                    break
+                conf_curve = trace[1]
+                stop_indices = np.where(np.array(conf_curve) < s)[0] if conf_curve else []
+                predicted_as_bad = len(stop_indices) > 0
+
+                # ✅ 保存分类结果
+                if predicted_as_bad:
+                    continue
+                else:
+                    # predicted_good.append(trace)
+                    totals[trace[0]] += trace[1]
+                    true_totals[trace[0]] += trace[1]
+        true_best_answer = max(true_totals, key=true_totals.get) if true_totals else None
+        voting_results[qid] = true_best_answer
+    return voting_results, s
 # ===== 主函数 =====
 def main():
     parser = argparse.ArgumentParser(description="Generate trace dataset with full precision confidence.")
     parser.add_argument("--dataname", type=str, required=True)
-    parser.add_argument("--version", type=str, default="22")
+    parser.add_argument("--version", type=str, required=True)
     parser.add_argument("--ifcnt", type=str, default="False")
     args = parser.parse_args()
     print(f"dataname: {args.dataname}, version: {args.version}, ifcnt: {args.ifcnt}")
@@ -163,31 +208,38 @@ def main():
     TRACES_DIR = Path(f"/home/yz54720/Projects/Method/deepconf/data/processed/{args.dataname}/traces")
     DATA_PATH = Path(f"/home/yz54720/Projects/Method/deepconf/data/raw/{args.dataname}.jsonl")
     OUTPUT_PATH = POOLING_DATA_DIR / "question_level_voting_summary.csv"
+    TAU = 0.95
     gt = load_ground_truth(DATA_PATH)
     # loading traces
-    traces_data = data_loading(TRACES_DIR, args.dataname, is_followup=False)
+    # traces_data = data_loading(TRACES_DIR, args.dataname, is_followup=False)
+    raw_traces = data_loading(TRACES_DIR, args.dataname, is_followup=False)
     # loading followup results
     followup_data = data_loading(POOLING_DATA_DIR, args.dataname, is_followup=True)
     # voting by qid
     baseline_correct_cnt = 0
     followup_correct_cnt = 0
+    majority_correct_cnt = 0
+    # baseline voting
+    baseline_voted_answers, conf_bar = online_voting(raw_traces, num_calibration=16, use_small_threshold=False, consensus_tau=TAU)
+    # online screening 就是把切一刀
+    # 但是pooling information他们没用consensus
+    # 后面要改成用consensus的
     for qid in gt.keys():
         ground_truth = gt[qid]
-        traces = traces_data.get(qid, [])
         followups = followup_data.get(qid, [])
-        
-        # traces voting
-        trace_score_c = {}
-        for ans, conf in traces:
-            trace_score_c[ans] = trace_score_c.get(ans, 0) + conf
-
+    
+        # majority voting
+        majority_count = {}
+        for ans, conf in raw_traces.get(qid, []):
+            majority_count[ans] = majority_count.get(ans, 0) + 1
         # voting result
-        if trace_score_c:
-            baseline_voted_answer = max(trace_score_c, key=trace_score_c.get)
+        
+        if majority_count:
+            majority_voted_answer = max(majority_count, key=majority_count.get)
         else:
-            baseline_voted_answer = None
-        if baseline_voted_answer == ground_truth:
-            baseline_correct_cnt += 1
+            majority_voted_answer = None
+        if majority_voted_answer == ground_truth:
+            majority_correct_cnt += 1
         # count answers
         counts = Counter([ans for ans, _ in traces])
         top_counts_sorted = sorted(set(counts.values()), reverse=True)
@@ -204,7 +256,8 @@ def main():
             else: 
                 cnt = 1
                 print(f"⚠️ QID {qid}: follow-up base answer {base_ans!r} not in top5 of traces.")
-            followup_score_c[ans] = followup_score_c.get(ans, 0) + conf * (cnt if args.ifcnt == "True" else 1)
+            # followup_score_c[ans] = followup_score_c.get(ans, 0) + conf * (cnt if args.ifcnt == "True" else 1)
+            followup_score_c[ans] = followup_score_c.get(ans, 0) + conf
         # voting result
         if followup_score_c:
             voted_answer = max(followup_score_c, key=followup_score_c.get)
@@ -220,6 +273,7 @@ def main():
             print(f"followup_score_c: {followup_score_c}")
     total_questions = len(gt)
     print(f"Baseline Accuracy: {baseline_correct_cnt}/{total_questions} = {baseline_correct_cnt/total_questions:.4f}")
+    print(f"Majority Accuracy: {majority_correct_cnt}/{total_questions} = {majority_correct_cnt/total_questions:.4f}")
     print(f"Follow-up Accuracy: {followup_correct_cnt}/{total_questions} = {followup_correct_cnt/total_questions:.4f}")
 
 if __name__ == "__main__":
