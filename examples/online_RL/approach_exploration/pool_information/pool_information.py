@@ -86,25 +86,24 @@ def build_follow_up_question(current_answer, current_count, other_answers, answe
         # 2️⃣ 构建 follow_up_question 文本
         follow_up_question = f"""
 Previously, you concluded the final answer was: {current_answer} 
-(supported by {current_count} trace{'s' if current_count > 1 else ''}).
+(supported by {current_count} individual reasoning paths).
 
-Below are other candidate answers produced by other independent reasoning traces, each with a short summary of its reasoning and the number of traces that reached it:
+However, other independent reasoning processes have reached different conclusions. Below is a summary of these competing candidates:
 {other_answers_text}
 
-Note:
-- The number of traces supporting an answer indicates how many independent reasoning paths arrived at that conclusion.
-- However, *frequency does not guarantee correctness*. Use this information only as auxiliary evidence.
+### INSTRUCTIONS FOR YOUR RECONSIDERATION:
+1. **Critical Comparison**: Do not simply assume the majority is correct. While a high "Trace Count" indicates a strong consensus, frequency is not a substitute for mathematical proof. Your goal is to identify the objective truth.
+2. **Divergence Analysis**: Carefully compare your previous reasoning with the candidates above. Identify the *exact step* where your logic deviates from theirs. Determine with 100% certainty which path is logically and computationally sound.
+3. **Common Pitfalls**: Specifically check for common errors such as sign mistakes, misinterpreted constraints, or oversimplified assumptions that might lead to a "popular" but incorrect consensus.
+4. **Valid Persistence**: If, after this rigorous review, you find your original reasoning to be flawed, pivot to the correct conclusion. However, if your original logic remains robust and the other candidates are mistaken, you MUST maintain your stance. Do not change your answer just to align with others.
 
-Carefully examine the reasoning processes of the other answers, especially where they differ from yours.
-Then thoroughly re-check your own logic for possible calculation mistakes or conceptual oversights.
-
-After reconsideration:
-- If you keep your previous answer, reply exactly:  
+### RESPONSE FORMAT:
+- If you maintain your previous conclusion, reply exactly:
   `I still choose: {current_answer}`
-- If you change your mind, reply exactly:  
+- If you change your decision, reply exactly:
   `I now choose: <new_answer>`
 
-Finally, output your decision in the exact format:  
+Finally, output your decision in the exact format:
 **FINAL ANSWER: \\boxed{{X}}**
 """
 
