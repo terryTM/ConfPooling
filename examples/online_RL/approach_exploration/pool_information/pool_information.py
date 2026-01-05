@@ -106,7 +106,30 @@ However, other independent reasoning processes have reached different conclusion
 Finally, output your decision in the exact format:
 **FINAL ANSWER: \\boxed{{X}}**
 """
+# Original version of follow_up_question construction
+#         follow_up_question = f"""
+# Previously, you concluded the final answer was: {current_answer} 
+# (supported by {current_count} trace{'s' if current_count > 1 else ''}).
 
+# Below are other candidate answers produced by other independent reasoning traces, each with a short summary of its reasoning and the number of traces that reached it:
+# {other_answers_text}
+
+# Note:
+# - The number of traces supporting an answer indicates how many independent reasoning paths arrived at that conclusion.
+# - However, *frequency does not guarantee correctness*. Use this information only as auxiliary evidence.
+
+# Carefully examine the reasoning processes of the other answers, especially where they differ from yours.
+# Then thoroughly re-check your own logic for possible calculation mistakes or conceptual oversights.
+
+# After reconsideration:
+# - If you keep your previous answer, reply exactly:  
+#   `I still choose: {current_answer}`
+# - If you change your mind, reply exactly:  
+#   `I now choose: <new_answer>`
+
+# Finally, output your decision in the exact format:  
+# **FINAL ANSWER: \\boxed{{X}}**
+# """
         # 3️⃣ 检查 token 数
         token_len = len(llm.tokenizer.tokenize(follow_up_question))
         if token_len <= max_length:
