@@ -266,11 +266,13 @@ def main():
         for trace in calibration_traces:
             if min(trace['group_confidence']) >= s:
                 predicted_good.append(trace)
-
+        # 建议修改点：去掉answer为None的trace
+        predicted_good = [t for t in predicted_good if t.get("answer") is not None]
         # --- ✅ Show Predicted Good Answers ---
         print("\n--- Answers from Predicted Good Traces ---")
         good_answers = [t["answer"] for t in predicted_good if t.get("answer") is not None]
         if good_answers:
+            # 只包含非 None 答案
             from collections import Counter
             counts = Counter(good_answers)
             for ans, cnt in counts.most_common(15):  # 只打印前 15 个最常见的

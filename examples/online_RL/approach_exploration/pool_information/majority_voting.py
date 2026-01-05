@@ -58,55 +58,57 @@ def data_loading_all(base_dir, dataname):
 
 def main():
     parser = argparse.ArgumentParser(description="Run standard Majority Voting baseline.")
-    parser.add_argument("--dataname", type=str, required=True, help="e.g., aime_2024")
+    # parser.add_argument("--dataname", type=str, required=True, help="e.g., aime_2024")
     parser.add_argument("--budget", type=int, default=256, help="Number of traces to sample per question")
     args = parser.parse_args()
 
     # ===== 路径配置 =====
-    BASE_PROJECT_DIR = Path("/home/yz54720/Projects/Method/deepconf/data")
-    TRACES_DIR = BASE_PROJECT_DIR / "processed" / args.dataname / "traces"
-    RAW_DATA_PATH = BASE_PROJECT_DIR / "raw" / f"{args.dataname}.jsonl"
+    all_dataname=["aime_2024", "aime_2025", "brumo_2025", "hmmt_2025"]
+    for dataname in all_dataname:
+        BASE_PROJECT_DIR = Path("/home/yz54720/Projects/Method/deepconf/data") 
+        TRACES_DIR = BASE_PROJECT_DIR / "processed" / dataname / "traces"
+        RAW_DATA_PATH = BASE_PROJECT_DIR / "raw" / f"{dataname}.jsonl"
 
-    print(f"--- Running MV for {args.dataname} (Budget N={args.budget}) ---")
+        print(f"--- Running MV for {dataname} (Budget N={args.budget}) ---")
 
-    # 1. 加载真值
-    gt = load_ground_truth(RAW_DATA_PATH)
-    
-    # 2. 加载所有轨迹 (不做筛选)
-    all_traces = data_loading_all(TRACES_DIR, args.dataname)
-    
-    correct_cnt = 0
-    total_questions = len(gt)
-    random.seed(42) # 保证采样可重复
-
-    for qid in range(total_questions):
-        ground_truth = gt.get(qid)
-        traces = all_traces.get(qid, [])
+        # 1. 加载真值
+        gt = load_ground_truth(RAW_DATA_PATH)
         
-        if not traces:
-            continue
-
-        # 3. 按照 Budget N 进行采样
-        # 如果原始 trace 不足 N，则取全部；如果超过 N，则随机抽取 N 个
-        sample_size = min(len(traces), args.budget)
-        sampled_answers = random.sample(traces, sample_size)
+        # 2. 加载所有轨迹 (不做筛选)
+        all_traces = data_loading_all(TRACES_DIR, dataname)
         
-        # 4. 执行不加权的 Majority Voting
-        if sampled_answers:
-            counts = Counter(sampled_answers)
-            # 获取票数最多的答案
-            voted_answer = counts.most_common(1)[0][0]
+        correct_cnt = 0
+        total_questions = len(gt)
+        random.seed(42) # 保证采样可重复
+
+        for qid in range(total_questions):
+            ground_truth = gt.get(qid)
+            traces = all_traces.get(qid, [])
             
-            if voted_answer == ground_truth:
-                correct_cnt += 1
-            else:
-                # 可选：打印错误详情
-                # print(f"QID {qid} Wrong: GT={ground_truth!r}, Voted={voted_answer!r}")
-                pass
+            if not traces:
+                continue
 
-    accuracy = correct_cnt / total_questions
-    print(f"\nFinal Result for {args.dataname}:")
-    print(f"Accuracy: {correct_cnt}/{total_questions} = {accuracy:.4f}")
+            # 3. 按照 Budget N 进行采样
+            # 如果原始 trace 不足 N，则取全部；如果超过 N，则随机抽取 N 个
+            sample_size = min(len(traces), args.budget)
+            sampled_answers = random.sample(traces, sample_size)
+            
+            # 4. 执行不加权的 Majority Voting
+            if sampled_answers:
+                counts = Counter(sampled_answers)
+                # 获取票数最多的答案
+                voted_answer = counts.most_common(1)[0][0]
+                
+                if voted_answer == ground_truth:
+                    correct_cnt += 1
+                else:
+                    # 可选：打印错误详情
+                    # print(f"QID {qid} Wrong: GT={ground_truth!r}, Voted={voted_answer!r}")
+                    pass
+
+        accuracy = correct_cnt / total_questions
+        print(f"\nFinal Result for {dataname}:")
+        print(f"Accuracy: {correct_cnt}/{total_questions} = {accuracy:.4f}")
 
 if __name__ == "__main__":
     main()

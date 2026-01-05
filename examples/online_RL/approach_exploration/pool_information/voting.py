@@ -11,14 +11,15 @@ import argparse
 import ast
 # ===== online screening ======
 
-def online_screening(traces, num_calibration=16, use_low_threshold=False):
+def online_screening(traces, num_calibration=64, use_low_threshold=False):
    # True: 10% percentile (lenient), False: 90% percentile (strict)
+    # TODO 要把这里改成pooling中同样的online集合来投票
     random.seed(13)
 
     # --- Calculate Threshold ---
     s = None
     if len(traces) >= num_calibration:
-        calibration_traces = random.sample(traces, num_calibration)
+        calibration_traces = traces[:num_calibration]
         lowest_confs = [min(t['group_confidence']) for t in calibration_traces if t['group_confidence']]
         if lowest_confs:
             s_high = np.percentile(lowest_confs, 10)
@@ -30,7 +31,7 @@ def online_screening(traces, num_calibration=16, use_low_threshold=False):
         predicted_good = []  # ✅ 收集未被截断的 trace
         predicted_bad = []
 
-        for trace in traces:
+        for trace in traces[num_calibration:]:
             actual_is_correct = trace['is_correct']
             conf_curve = trace['group_confidence']
 
@@ -42,6 +43,9 @@ def online_screening(traces, num_calibration=16, use_low_threshold=False):
                 predicted_bad.append(trace)
             else:
                 predicted_good.append(trace)
+    for trace in traces[:num_calibration]:
+        if min(trace['group_confidence']) > s:
+            predicted_good.append(trace)
     return predicted_good
 def load_traces(file_path):
     traces = []
@@ -133,7 +137,7 @@ def data_loading(base_dir, dataname, is_followup=False):
                 base_ans = clean_latex_answer(item.get("base_answer"))
                 ans = extract_boxed_answer(item.get("trace_2", "")) 
                 conf = np.min(item.get("group_confidences_2", np.nan))
-                if ans:
+                if ans and (base_ans is not None):
                     results[qid].append((base_ans, ans, conf))
         else:
             predicted_good = online_screening(traces)
@@ -141,7 +145,7 @@ def data_loading(base_dir, dataname, is_followup=False):
                 ans = clean_latex_answer(item.get("answer"))
                 # 算一个trace level的confidence
                 conf = np.min(item.get("group_confidence", np.nan))
-                if ans:
+                if ans and (ans is not None):
                     results[qid].append((ans, conf))
     return results
 def load_ground_truth(path):
@@ -154,7 +158,7 @@ def load_ground_truth(path):
 def main():
     parser = argparse.ArgumentParser(description="Generate trace dataset with full precision confidence.")
     parser.add_argument("--dataname", type=str, required=True)
-    parser.add_argument("--version", type=str, default="22")
+    parser.add_argument("--version", type=str, default="3")
     parser.add_argument("--ifcnt", type=str, default="False")
     args = parser.parse_args()
     print(f"dataname: {args.dataname}, version: {args.version}, ifcnt: {args.ifcnt}")
@@ -164,7 +168,7 @@ def main():
     DATA_PATH = Path(f"/home/yz54720/Projects/Method/deepconf/data/raw/{args.dataname}.jsonl")
     OUTPUT_PATH = POOLING_DATA_DIR / "question_level_voting_summary.csv"
     gt = load_ground_truth(DATA_PATH)
-    # loading traces
+    # loading traces, online screened
     traces_data = data_loading(TRACES_DIR, args.dataname, is_followup=False)
     # loading followup results
     followup_data = data_loading(POOLING_DATA_DIR, args.dataname, is_followup=True)
@@ -182,6 +186,8 @@ def main():
             trace_score_c[ans] = trace_score_c.get(ans, 0) + conf
 
         # voting result
+        # 去掉none再投票
+        trace_score_c.pop(None, None)
         if trace_score_c:
             baseline_voted_answer = max(trace_score_c, key=trace_score_c.get)
         else:
