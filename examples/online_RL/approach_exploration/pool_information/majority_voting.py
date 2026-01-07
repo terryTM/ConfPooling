@@ -26,6 +26,8 @@ def load_ground_truth(path):
             if line.strip():
                 item = json.loads(line)
                 gt[i] = str(item.get("answer", "")).strip()
+                # 去掉每个字符串中的所有空格
+                gt[i] = re.sub(r"\s+", "", gt[i])
     return gt
 
 def clean_latex_answer(ans: str) -> str:
@@ -63,7 +65,8 @@ def main():
     args = parser.parse_args()
 
     # ===== 路径配置 =====
-    all_dataname=["aime_2024", "aime_2025", "brumo_2025", "hmmt_2025"]
+    # all_dataname=["aime_2024", "aime_2025", "brumo_2025", "hmmt_2025"]
+    all_dataname=["hmmt_2025"]
     for dataname in all_dataname:
         BASE_PROJECT_DIR = Path("/home/yz54720/Projects/Method/deepconf/data") 
         TRACES_DIR = BASE_PROJECT_DIR / "processed" / dataname / "traces"

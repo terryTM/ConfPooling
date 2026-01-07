@@ -56,99 +56,70 @@ def load_concatenated_json(file_path):
     
     return final_data
 
-def build_follow_up_question(current_answer, current_count, other_answers, answer_counts, max_length, llm):
+def build_follow_up_question(current_answer, current_max_conf, top_n_data, max_length, llm):
     """
-    动态减少 other_answers_text，使 follow_up_question 长度不超过 max_length。
-    删除顺序：从 trace 数量最少的答案开始删。
+    根据用户逻辑优化的双路径 Prompt。
+    Peer Review: 极简逻辑验证。
+    Correction Needed: 强化纠偏压力。
     """
+    is_in_top_n = current_answer in top_n_data
+    
+    if is_in_top_n:
+        # Peer Review: Top 4 内部对比
+        candidates = {ans: conf for ans, conf in top_n_data.items() if ans != current_answer}
+        protocol_type = "PEER_REVIEW"
+    else:
+        # Correction Needed: 与 Top 3 进行对比
+        top_3_ans = list(top_n_data.keys())[:3]
+        candidates = {ans: top_n_data[ans] for ans in top_3_ans}
+        protocol_type = "CORRECTION_NEEDED"
 
-    # 将 other_answers 按 trace 数量升序排序（少的优先删）
-    sorted_answers = sorted(
-        other_answers.items(), 
-        key=lambda x: answer_counts.get(x[0], 0)
-    )
+    sorted_candidates = sorted(candidates.items(), key=lambda x: x[1])
 
-    # 当前保留的答案列表（ascending order）
-    kept_answers = list(sorted_answers)
-    removed_answers = []
     while True:
-        # 1️⃣ 构建 other_answers_text
-        other_lines = []
-        for i, (ans, text) in enumerate(kept_answers, start=1):
-            count = answer_counts.get(ans, 1)
-            other_lines.append(
-                f"{i}. Candidate answer {ans} (supported by {count} trace{'s' if count > 1 else ''}):\n{text.strip()}\n"
-            )
-        other_answers_text = "\n".join(other_lines) if other_lines else "(No other candidate answers remain.)"
-        if not other_lines:
-            print('[WARNING] No other candidate answers left to include in the prompt.')
+        cand_text = "\n".join([
+            f"{i}. Candidate {ans} (Confidence: {conf:.4f})" 
+            for i, (ans, conf) in enumerate(sorted_candidates, 1)
+        ])
 
-        # 2️⃣ 构建 follow_up_question 文本
-        follow_up_question = f"""
-Previously, you concluded the final answer was: {current_answer} 
-(supported by {current_count} individual reasoning paths).
+        if protocol_type == "PEER_REVIEW":
+            # 极简模式：去掉对 Confidence 的重复说明，专注逻辑
+            prompt_body = f"""
+Previously, you concluded: {current_answer} (Confidence: {current_max_conf:.4f})
 
-However, other independent reasoning processes have reached different conclusions. Below is a summary of these competing candidates:
-{other_answers_text}
+Other independent reasoning paths produced the following high-confidence candidates:
+{cand_text}
 
-### INSTRUCTIONS FOR YOUR RECONSIDERATION:
-1. **Critical Comparison**: Do not simply assume the majority is correct. While a high "Trace Count" indicates a strong consensus, frequency is not a substitute for mathematical proof. Your goal is to identify the objective truth.
-2. **Divergence Analysis**: Carefully compare your previous reasoning with the candidates above. Identify the *exact step* where your logic deviates from theirs. Determine with 100% certainty which path is logically and computationally sound.
-3. **Common Pitfalls**: Specifically check for common errors such as sign mistakes, misinterpreted constraints, or oversimplified assumptions that might lead to a "popular" but incorrect consensus.
-4. **Valid Persistence**: If, after this rigorous review, you find your original reasoning to be flawed, pivot to the correct conclusion. However, if your original logic remains robust and the other candidates are mistaken, you MUST maintain your stance. Do not change your answer just to align with others.
-
-### RESPONSE FORMAT:
-- If you maintain your previous conclusion, reply exactly:
-  `I still choose: {current_answer}`
-- If you change your decision, reply exactly:
-  `I now choose: <new_answer>`
-
-Finally, output your decision in the exact format:
-**FINAL ANSWER: \\boxed{{X}}**
+### EVALUATION PROTOCOL:
+1. **Divergence Analysis**: Identify the specific logical junction where your reasoning differs from these alternatives.
+2. **Objective Verification**: Evaluate each path based on its mathematical and logical soundness.
+3. **Final Decision**: Maintain your conclusion if the logic remains robust, or pivot if you find a definitive flaw. Avoid changing your answer solely for the sake of alignment.
 """
-# Original version of follow_up_question construction
-#         follow_up_question = f"""
-# Previously, you concluded the final answer was: {current_answer} 
-# (supported by {current_count} trace{'s' if current_count > 1 else ''}).
-
-# Below are other candidate answers produced by other independent reasoning traces, each with a short summary of its reasoning and the number of traces that reached it:
-# {other_answers_text}
-
-# Note:
-# - The number of traces supporting an answer indicates how many independent reasoning paths arrived at that conclusion.
-# - However, *frequency does not guarantee correctness*. Use this information only as auxiliary evidence.
-
-# Carefully examine the reasoning processes of the other answers, especially where they differ from yours.
-# Then thoroughly re-check your own logic for possible calculation mistakes or conceptual oversights.
-
-# After reconsideration:
-# - If you keep your previous answer, reply exactly:  
-#   `I still choose: {current_answer}`
-# - If you change your mind, reply exactly:  
-#   `I now choose: <new_answer>`
-
-# Finally, output your decision in the exact format:  
-# **FINAL ANSWER: \\boxed{{X}}**
-# """
-        # 3️⃣ 检查 token 数
-        token_len = len(llm.tokenizer.tokenize(follow_up_question))
-        if token_len <= max_length:
-            # 长度合适，结束循环
-            if removed_answers:
-                print(f"[WARNING] Reduced other candidate answers to fit length limit. Removed answers: {[ans for ans, _ in removed_answers]}")
-            return follow_up_question.strip()
-
-        # 4️⃣ 如果太长 → 删除 trace 数最少的答案
-        if len(kept_answers) > 0:
-            removed_answers.append(kept_answers.pop(0))   # 删除一个最少 trace 的
         else:
-            # 全部删光了还超长，则返回极简提问（保底不报错）
-            print('[WARNING] All candidate answers removed, still exceeding max length.')
-            return (
-                f"Previously, you gave answer: {current_answer}.\n"
-                f"Re-check your reasoning and decide whether you keep it.\n\n"
-                f"FINAL ANSWER: \\boxed{{X}}"
-            )
+            # 强化模式：明确指出当前答案极大概率错误，正确答案在列表中
+            # 这里的 N 使用 len(candidates) 动态显示
+            prompt_body = f"""
+Previously, you concluded: {current_answer} (Confidence: {current_max_conf:.4f})
+
+**URGENT DIAGNOSTIC REQUIRED:** Our multi-path analysis indicates your previous answer is highly likely to be incorrect, as it failed to reach the confidence threshold of the top candidates. **The correct solution is almost certainly contained within the alternatives listed below:**
+{cand_text}
+
+### CORRECTION PROTOCOL:
+1. **Flaw Identification**: Treat your previous reasoning as having a confirmed logical derailment. Your task is to find that specific error by contrasting it with the paths above.
+2. **Path Reconstruction**: These candidates represent the most stable and consistent reasoning found across multiple independent trials. Re-verify them to identify which one represents the objective truth.
+3. **Decisive Pivot**: Use the candidates above as your primary reference to correct your reasoning and provide the valid final answer.
+"""
+
+        full_prompt = prompt_body.strip() + "\n\nFinal decision format: **FINAL ANSWER: \\boxed{{X}}**"
+        
+        # Token 检查与动态截断
+        if len(llm.tokenizer.tokenize(full_prompt)) <= max_length:
+            return full_prompt
+        
+        if sorted_candidates:
+            sorted_candidates.pop(0) # 优先删除置信度较低的干扰项
+        else:
+            return f"Re-verify: {current_answer}\nFINAL ANSWER: \\boxed{{X}}"
 
 
 def calculate_token_confs_from_logprobs(logprobs: List[Dict[int, Any]]) -> List[float]:
@@ -372,7 +343,8 @@ def main():
                 "base_answer": current_answer,
                 "other_answers": other_answers,
                 "trace_2": trace_2, 
-                "group_confidences_2": group_confidences
+                "group_confidences_2": group_confidences, 
+                "trace2_token_length": len(deep_llm.tokenizer.tokenize(trace_2))
             })
     # write to file
     os.makedirs(args.output_dir, exist_ok=True)

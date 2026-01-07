@@ -40,12 +40,12 @@ def clean_latex_answer(ans: str) -> str:
 
 # ===== 2. Online 筛选逻辑 (Top 10% 策略) =====
 
-def analyze_qid(qid, traces, ground_truth, num_calibration=16, seed=13):
+def analyze_qid(qid, traces, ground_truth, num_calibration=64, seed=13):
     random.seed(seed)
     if len(traces) < num_calibration: return None
     
     # 阈值计算 (与 DeepConf-low 逻辑一致)
-    calibration_traces = random.sample(traces, num_calibration)
+    calibration_traces = traces[:num_calibration]
     lowest_confs = [min(t['group_confidence']) for t in calibration_traces if t.get('group_confidence')]
     if not lowest_confs: return None
     s_strict = np.percentile(lowest_confs, 90) # 90分位点作为 Top 10% 的生死线
@@ -85,7 +85,7 @@ def analyze_qid(qid, traces, ground_truth, num_calibration=16, seed=13):
 # ===== 3. 主循环与绘图 =====
 
 def main():
-    dataname = "brumo_2025"
+    dataname = "hmmt_2025"
     base_dir = Path("/home/yz54720/Projects/Method/deepconf/data")
     traces_dir = base_dir / "processed" / dataname / "traces"
     gt_path = base_dir / "raw" / f"{dataname}.jsonl"

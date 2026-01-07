@@ -152,13 +152,15 @@ def load_ground_truth(path):
     gt = {}
     for i, item in enumerate(load_traces(path)):
         gt[i] = str(item.get("answer", "")).strip()
+        # 去掉每个字符串中的所有空格
+        gt[i] = re.sub(r"\s+", "", gt[i])
     return gt
 
 # ===== 主函数 =====
 def main():
     parser = argparse.ArgumentParser(description="Generate trace dataset with full precision confidence.")
     parser.add_argument("--dataname", type=str, required=True)
-    parser.add_argument("--version", type=str, default="3")
+    parser.add_argument("--version", type=str, default="3_newprompt")
     parser.add_argument("--ifcnt", type=str, default="False")
     args = parser.parse_args()
     print(f"dataname: {args.dataname}, version: {args.version}, ifcnt: {args.ifcnt}")
