@@ -247,28 +247,26 @@ def main():
     top_n_answers = sorted(answer_max_confs.keys(), key=lambda x: answer_max_confs[x], reverse=True)[:4]
     top_n_data = {ans: answer_max_confs[ans] for ans in top_n_answers}
 
-    ########### INITIALIZE LLM & FOLLOW-UP ###########
+    ########### INITIALIZE LLM & FOLLOW-UP (Batch Mode) ###########
     deep_llm = DeepThinkLLM(model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B")
-    all_traces_2 = []
+    
+    prompts_to_run = []
+    params_to_run = []
+    metadata_list = []
 
     if predicted_good:
-        print(f"\n=== Generating Follow-up for {len(predicted_good)} Good Traces ===")
+        print(f"\n[INFO] Preparing {len(predicted_good)} tasks for Batch Generation...")
         
         for base_trace in predicted_good:
             current_answer = base_trace.get("answer")
             current_max_conf = answer_max_confs[current_answer]
             trace_1_string = base_trace.get("text", "")
             
-            # 为当前 trace 准备 Prompt 参数
+            # 计算动态截断长度，防止总长度溢出
             max_length = 131072 - len(deep_llm.tokenizer.tokenize(trace_1_string)) - len(deep_llm.tokenizer.tokenize(question)) - 500
             
-            # 构建双路径提示词
             follow_up_question = build_follow_up_question(
-                current_answer, 
-                current_max_conf, 
-                top_n_data, 
-                max_length, 
-                deep_llm
+                current_answer, current_max_conf, top_n_data, max_length, deep_llm
             )
 
             messages_turn_2 = [
@@ -279,25 +277,50 @@ def main():
             ]
 
             prompt_2 = deep_llm.tokenizer.apply_chat_template(messages_turn_2, tokenize=False, add_generation_prompt=True)
-
-            # 调用生成
-            sampling_params = SamplingParams(temperature=0.6, max_tokens=64000, top_p=0.95, logprobs=20)
-            outputs_2 = deep_llm.generate(prompt_2, sampling_params)
             
-            trace_2 = outputs_2[0].outputs[0].text
-            raw_logprobs = outputs_2[0].outputs[0].logprobs
-            token_confidences = calculate_token_confs_from_logprobs(raw_logprobs)
-            group_confidences_2 = compute_group_confidence_full_precision(token_confidences, args.window_size)
-
-            all_traces_2.append({
+            prompts_to_run.append(prompt_2)
+            params_to_run.append(SamplingParams(temperature=0.6, max_tokens=64000, top_p=0.95, logprobs=20))
+            metadata_list.append({
                 "base_trace_id": base_trace.get("trace_id"),
                 "base_answer": current_answer,
                 "current_max_conf": current_max_conf,
-                "is_topn": current_answer in top_n_answers,
-                "trace_2": trace_2, 
-                "group_confidences_2": group_confidences_2,
-                "trace2_token_length": len(deep_llm.tokenizer.tokenize(trace_2))
+                "is_topn": current_answer in top_n_answers
             })
+
+        # --- 批量生成核心逻辑 ---
+        # 针对 131k context，BATCH_SIZE 建议设为 16 以平衡吞吐量与显存风险
+        BATCH_SIZE = 16 
+        all_traces_2 = []
+        
+        for i in range(0, len(prompts_to_run), BATCH_SIZE):
+            # 这里的切片会自动处理末尾不足 BATCH_SIZE 的情况
+            chunk_prompts = prompts_to_run[i : i + BATCH_SIZE]
+            chunk_params = params_to_run[i : i + BATCH_SIZE]
+            chunk_meta = metadata_list[i : i + BATCH_SIZE]
+            
+            current_batch_count = len(chunk_prompts)
+            print(f"  - [Batch] Processing {i} to {i + current_batch_count} (Current Chunk Size: {current_batch_count})...")
+            
+            # 批量喂给 vLLM
+            vllm_outputs = deep_llm.llm.generate(chunk_prompts, chunk_params)
+            
+            for idx, output in enumerate(vllm_outputs):
+                meta = chunk_meta[idx]
+                trace_2_text = output.outputs[0].text
+                raw_logprobs = output.outputs[0].logprobs
+                
+                token_confidences = calculate_token_confs_from_logprobs(raw_logprobs)
+                group_confidences_2 = compute_group_confidence_full_precision(token_confidences, args.window_size)
+
+                all_traces_2.append({
+                    "base_trace_id": meta["base_trace_id"],
+                    "base_answer": meta["base_answer"],
+                    "current_max_conf": meta["current_max_conf"],
+                    "is_topn": meta["is_topn"],
+                    "trace_2": trace_2_text, 
+                    "group_confidences_2": group_confidences_2,
+                    "trace2_token_length": len(deep_llm.tokenizer.tokenize(trace_2_text))
+                })
 
     # 保存结果
     os.makedirs(args.output_dir, exist_ok=True)
