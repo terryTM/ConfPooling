@@ -133,11 +133,17 @@ def data_loading(base_dir, dataname, is_followup=False):
         qid = int(qid_match.group(1))
         traces = load_traces(jsonl_path)
         if is_followup:
+            # 统计is_topntrue
+            is_topn_true_count = sum(item.get("is_topn", False) for item in traces)
             for item in traces:
                 base_ans = clean_latex_answer(item.get("base_answer"))
                 ans = extract_boxed_answer(item.get("trace_2", "")) 
                 conf = np.min(item.get("group_confidences_2", np.nan))
-                if ans and (base_ans is not None):
+                is_topn = item.get("is_topn", False)
+                if is_topn_true_count<=5:
+                    is_topn = True
+                # is_topn = True
+                if ans and (base_ans is not None) and is_topn:
                     results[qid].append((base_ans, ans, conf))
         else:
             predicted_good = online_screening(traces)
@@ -153,14 +159,14 @@ def load_ground_truth(path):
     for i, item in enumerate(load_traces(path)):
         gt[i] = str(item.get("answer", "")).strip()
         # 去掉每个字符串中的所有空格
-        gt[i] = re.sub(r"\s+", "", gt[i])
+        gt[i] = clean_latex_answer(gt[i])
     return gt
 
 # ===== 主函数 =====
 def main():
     parser = argparse.ArgumentParser(description="Generate trace dataset with full precision confidence.")
     parser.add_argument("--dataname", type=str, required=True)
-    parser.add_argument("--version", type=str, default="3_newprompt")
+    parser.add_argument("--version", type=str, default="4")
     parser.add_argument("--ifcnt", type=str, default="False")
     args = parser.parse_args()
     print(f"dataname: {args.dataname}, version: {args.version}, ifcnt: {args.ifcnt}")

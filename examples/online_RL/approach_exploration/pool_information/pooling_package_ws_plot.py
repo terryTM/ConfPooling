@@ -52,6 +52,7 @@ def get_ranks_with_params(traces, gt_val, percentile, num_calibration=256):
     stats = defaultdict(lambda: {'max_conf': -1.0, 'sum_conf': 0.0})
     for t in good_traces:
         ans = clean_answer(t.get("answer", ""))
+        # ans = t.get("answer", "")
         if not ans: continue
         conf = min(t.get('group_confidence', [0]))
         
@@ -103,7 +104,7 @@ def main():
     args = parser.parse_args()
     Ninit = args.Ninit
     
-    datanames = ["aime_2024", "aime_2025", "brumo_2025", "hmmt_2025"]  
+    datanames = ["hmmt_2025", "aime_2024", "aime_2025", "brumo_2025"]  
     for dataname in datanames:
         gt_path = Path(f"/home/yz54720/Projects/Method/deepconf/data/raw/{dataname}.jsonl")
 
@@ -154,7 +155,7 @@ def main():
 
         # 绘图与展示
         df = pd.DataFrame(sweep_results)
-        outdir = Path(f"/home/yz54720/Projects/Method/deepconf/data/calibration/pooling_package_plots/Ninit_{Ninit}")  
+        outdir = Path(f"/home/yz54720/Projects/Method/deepconf/data/calibration/pooling_package_sanity/Ninit_{Ninit}")  
         plot_heatmaps(df, outdir, dataname)
         
         # 打印简表供快速参考
