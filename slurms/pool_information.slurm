@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --time=72:00:00
+#SBATCH --time=48:00:00
 #SBATCH --output=logs/%A_%a.log
 #SBATCH --array=0-19   # 集群限制：最多 0-19，一共 20 个 task
 
@@ -47,7 +47,7 @@ for GLOBAL_ID in $(seq "$START_INDEX" "$END_INDEX"); do
     QID=$(( GLOBAL_ID % QUESTIONS_PER_DATASET ))
     DATASET_NAME=${DATASETS[$DATASET_INDEX]}
 
-    OUT_DIR="data/processed/${DATASET_NAME}/pool_information_v4"
+    OUT_DIR="data/processed/${DATASET_NAME}/pool_information_v5"
     OUT_PATH="${OUT_DIR}/${DATASET_NAME}_${QID}_deepconflow_self_check.jsonl"
 
     mkdir -p "$OUT_DIR"

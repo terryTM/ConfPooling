@@ -64,71 +64,67 @@ def load_concatenated_json(file_path):
     
     return final_data
 
-def build_follow_up_question(current_answer, current_max_conf, top_n_data, max_length, llm):
+def build_follow_up_question(current_answer, top_n_data):
     """
-    根据用户逻辑优化的双路径 Prompt。
-    Peer Review: 极简逻辑验证。
-    Correction Needed: 强化纠偏压力。
+    根据 Ranked Voting 逻辑优化的追问 Prompt。
+    top_n_data: Dict[str, dict] -> {answer: {"max_conf": float, "summary": str}}
     """
-    is_in_top_n = current_answer in top_n_data
-    
+    # 获取 Top 4 列表
+    top_4_list = list(top_n_data.keys())
+    is_in_top_n = current_answer in top_4_list
+
+    # 构造统一的候选答案展示文本（包含推理过程）
+    candidate_display_text = ""
+    for i, ans in enumerate(top_4_list, 1):
+        info = top_n_data[ans]
+        candidate_display_text += f"\n[Candidate {i}]: {ans} (Confidence: {info['max_conf']:.4f})\n"
+        candidate_display_text += f"Reasoning Summary: {info['summary']}\n"
+
     if is_in_top_n:
-        # Peer Review: Top 4 内部对比
-        candidates = {ans: conf for ans, conf in top_n_data.items() if ans != current_answer}
-        protocol_type = "PEER_REVIEW"
+        # 路径 A: 内部成员 (PEER REVIEW)
+        prompt_body = f"""
+### BACKGROUND:
+You previously solved this problem and reached the conclusion: **{current_answer}**. 
+Your reasoning is currently among the **Top 4 most confident** paths identified by the system.
+
+### PEER REVIEW POOL:
+Below are the Top 4 high-confidence candidates (including your own {current_answer}). Please review their reasoning summaries carefully:
+{candidate_display_text}
+
+### RANKED EVALUATION PROTOCOL:
+As a member of this elite panel, you must perform a rigorous cross-verification:
+1. **Divergence Check**: Identify where your reasoning differs from the other 3 candidates. Did they address a constraint or edge case you missed?
+2. **Logical Ranking**: Rank all 4 candidates based on mathematical soundness. Even if you maintain your stance, you must provide a full preference order for all 4 options.
+"""
     else:
-        # Correction Needed: 与 Top 3 进行对比
-        top_3_ans = list(top_n_data.keys())[:3]
-        candidates = {ans: top_n_data[ans] for ans in top_3_ans}
-        protocol_type = "CORRECTION_NEEDED"
+        # 场景 B：当前 Trace 不在精英组 (External Arbitration)
+        prompt_body = f"""
+### BACKGROUND:
+You previously reached the conclusion: **{current_answer}**. 
+However, after a system-wide screening, other reasoning paths have demonstrated significantly higher logical confidence scores than yours.
 
-    sorted_candidates = sorted(candidates.items(), key=lambda x: x[1])
+### ELITE CANDIDATE POOL (TOP 4):
+Below are the 4 most confident candidate answers and their reasoning summaries. You must evaluate these objectively:
+{candidate_display_text}
 
-    while True:
-        cand_text = "\n".join([
-            f"{i}. Candidate {ans} (Confidence: {conf:.4f})" 
-            for i, (ans, conf) in enumerate(sorted_candidates, 1)
-        ])
-
-        if protocol_type == "PEER_REVIEW":
-            # 极简模式：去掉对 Confidence 的重复说明，专注逻辑
-            prompt_body = f"""
-Previously, you concluded: {current_answer} (Confidence: {current_max_conf:.4f})
-
-Other independent reasoning paths produced the following high-confidence candidates:
-{cand_text}
-
-### EVALUATION PROTOCOL:
-1. **Divergence Analysis**: Identify the specific logical junction where your reasoning differs from these alternatives.
-2. **Objective Verification**: Evaluate each path based on its mathematical and logical soundness.
-3. **Final Decision**: Maintain your conclusion if the logic remains robust, or pivot if you find a definitive flaw. Avoid changing your answer solely for the sake of alignment.
-"""
-        else:
-            # 强化模式：明确指出当前答案极大概率错误，正确答案在列表中
-            # 这里的 N 使用 len(candidates) 动态显示
-            prompt_body = f"""
-Previously, you concluded: {current_answer} (Confidence: {current_max_conf:.4f})
-
-**URGENT DIAGNOSTIC REQUIRED:** Our multi-path analysis indicates your previous answer is highly likely to be incorrect, as it failed to reach the confidence threshold of the top candidates. **The correct solution is almost certainly contained within the alternatives listed below:**
-{cand_text}
-
-### CORRECTION PROTOCOL:
-1. **Flaw Identification**: Treat your previous reasoning as having a confirmed logical derailment. Your task is to find that specific error by contrasting it with the paths above.
-2. **Path Reconstruction**: These candidates represent the most stable and consistent reasoning found across multiple independent trials. Re-verify them to identify which one represents the objective truth.
-3. **Decisive Pivot**: Use the candidates above as your primary reference to correct your reasoning and provide the valid final answer.
+### RANKED ARBITRATION PROTOCOL:
+You are now acting as an independent arbitrator. Since your initial logic fell outside the top tier, you must evaluate these 4 elite candidates:
+1. **Critical Review**: Analyze the methodologies of these Top 4 paths. Which one is most likely to be correct?
+2. **Ranked Preference**: Rank these 4 candidates from most probable to least probable. Do not include your original answer {current_answer} in the ranking unless it matches one of the Top 4.
 """
 
-        full_prompt = prompt_body.strip() + "\n\nFinal decision format: **FINAL ANSWER: \\boxed{{X}}**"
-        
-        # Token 检查与动态截断
-        if len(llm.tokenizer.tokenize(full_prompt)) <= max_length:
-            return full_prompt
-        
-        if sorted_candidates:
-            sorted_candidates.pop(0) # 优先删除置信度较低的干扰项
-        else:
-            return f"Re-verify: {current_answer}\nFINAL ANSWER: \\boxed{{X}}"
+    # 统一的输出格式要求：强制使用 \boxed 排序
+    instruction_suffix = """
+### OUTPUT FORMAT:
+1. **Justification**: Briefly explain the strengths/weaknesses of each candidate.
+2. **Final Ranking Summary**: At the very end, you MUST summarize your final ranking in a single LaTeX box using the format: `\\boxed{1:Ans > 2:Ans > 3:Ans > 4:Ans}`.
 
+Example: If you rank 100 first, 20 second, 50 third, and 10 fourth, output:
+**FINAL RANKING: \\boxed{1:100 > 2:20 > 3:50 > 4:10}**
+"""
+
+    full_prompt = prompt_body.strip() + "\n" + instruction_suffix.strip()
+    return full_prompt
 
 def calculate_token_confs_from_logprobs(logprobs: List[Dict[int, Any]]) -> List[float]:
     """
@@ -257,17 +253,30 @@ def main():
     if predicted_good:
         print(f"\n[INFO] Preparing {len(predicted_good)} tasks for Batch Generation...")
         
+        answer_best_info = {}
+        for t in predicted_good:
+            ans = t['answer']
+            conf = t['min_conf']
+            # 如果该答案还没记录，或者当前 trace 置信度更高，则更新
+            if ans not in answer_best_info or conf > answer_best_info[ans]['max_conf']:
+                # 提取推理部分 (reasoning) 作为 summary
+                reasoning, _ = split_thinking_and_answer(t.get("text", ""))
+                answer_best_info[ans] = {
+                    'max_conf': conf,
+                    'summary': reasoning 
+                }
+
+        # 2. 确定最终的 Top 4 字典（所有 base trace 共用这套数据）
+        top_n_answers = sorted(answer_best_info.keys(), key=lambda x: answer_best_info[x]['max_conf'], reverse=True)[:4]
+        top_n_data = {ans: answer_best_info[ans] for ans in top_n_answers}
+
+        # --- 进入循环 ---
         for base_trace in predicted_good:
             current_answer = base_trace.get("answer")
-            current_max_conf = answer_max_confs[current_answer]
             trace_1_string = base_trace.get("text", "")
             
-            # 计算动态截断长度，防止总长度溢出
-            max_length = 131072 - len(deep_llm.tokenizer.tokenize(trace_1_string)) - len(deep_llm.tokenizer.tokenize(question)) - 500
-            
-            follow_up_question = build_follow_up_question(
-                current_answer, current_max_conf, top_n_data, max_length, deep_llm
-            )
+            # 调用下面补全的函数
+            follow_up_question = build_follow_up_question(current_answer, top_n_data)
 
             messages_turn_2 = [
                 {"role": "system", "content": "该助手为DeepSeek-R1，由深度求索公司创造。\n今天是2025年5月28日，星期一。\n"},
@@ -279,17 +288,16 @@ def main():
             prompt_2 = deep_llm.tokenizer.apply_chat_template(messages_turn_2, tokenize=False, add_generation_prompt=True)
             
             prompts_to_run.append(prompt_2)
-            params_to_run.append(SamplingParams(temperature=0.6, max_tokens=64000, top_p=0.95, logprobs=20))
+            params_to_run.append(SamplingParams(temperature=0.6, max_tokens=24000, top_p=0.95, logprobs=20))
             metadata_list.append({
                 "base_trace_id": base_trace.get("trace_id"),
                 "base_answer": current_answer,
-                "current_max_conf": current_max_conf,
                 "is_topn": current_answer in top_n_answers
             })
 
         # --- 批量生成核心逻辑 ---
         # 针对 131k context，BATCH_SIZE 建议设为 16 以平衡吞吐量与显存风险
-        BATCH_SIZE = 16 
+        BATCH_SIZE = 32
         all_traces_2 = []
         
         for i in range(0, len(prompts_to_run), BATCH_SIZE):
@@ -315,7 +323,6 @@ def main():
                 all_traces_2.append({
                     "base_trace_id": meta["base_trace_id"],
                     "base_answer": meta["base_answer"],
-                    "current_max_conf": meta["current_max_conf"],
                     "is_topn": meta["is_topn"],
                     "trace_2": trace_2_text, 
                     "group_confidences_2": group_confidences_2,
