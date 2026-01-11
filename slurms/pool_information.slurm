@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=pooling_all
+#SBATCH --job-name=pooling_v5
 #SBATCH --partition=gpu_p
 #SBATCH --gres=gpu:A100:1
 #SBATCH --ntasks=1
@@ -52,10 +52,10 @@ for GLOBAL_ID in $(seq "$START_INDEX" "$END_INDEX"); do
 
     mkdir -p "$OUT_DIR"
 
-    if [ -f "$OUT_PATH" ]; then
-        echo "✅ Skip: dataset=${DATASET_NAME}, QID=${QID}, file already exists at ${OUT_PATH}"
-        continue
-    fi
+    # if [ -f "$OUT_PATH" ]; then
+    #     echo "✅ Skip: dataset=${DATASET_NAME}, QID=${QID}, file already exists at ${OUT_PATH}"
+    #     continue
+    # fi
 
     echo "🚀 Running: dataset=${DATASET_NAME}, QID=${QID}"
     python examples/online_RL/approach_exploration/pool_information/pool_information.py \

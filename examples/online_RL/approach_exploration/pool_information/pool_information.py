@@ -170,15 +170,15 @@ def split_thinking_and_answer(text):
     match = re.search(r"<think>(.*?)</think>(.*)", text, flags=re.DOTALL)
     if match:
         reasoning = match.group(1).strip()
-        answer = match.group(2).strip()
+        summary = match.group(2).strip()
     else:
         reasoning = ""
-        answer = text.strip()
+        summary = text.strip()
 
     # 去除结尾的特殊符号（包含可能的空格或换行）
-    answer = re.sub(r"<\s*[\|｜]\s*end▁of▁sentence\s*[\|｜]\s*>", "", answer, flags=re.IGNORECASE).strip()
+    summary = re.sub(r"<\s*[\|｜]\s*end▁of▁sentence\s*[\|｜]\s*>", "", summary, flags=re.IGNORECASE).strip()
 
-    return reasoning, answer
+    return reasoning, summary
 def parse_args():
     parser = argparse.ArgumentParser(description="Run follow-up self-check experiment")
 
@@ -260,10 +260,10 @@ def main():
             # 如果该答案还没记录，或者当前 trace 置信度更高，则更新
             if ans not in answer_best_info or conf > answer_best_info[ans]['max_conf']:
                 # 提取推理部分 (reasoning) 作为 summary
-                reasoning, _ = split_thinking_and_answer(t.get("text", ""))
+                _, summary = split_thinking_and_answer(t.get("text", ""))
                 answer_best_info[ans] = {
                     'max_conf': conf,
-                    'summary': reasoning 
+                    'summary': summary 
                 }
 
         # 2. 确定最终的 Top 4 字典（所有 base trace 共用这套数据）
