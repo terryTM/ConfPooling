@@ -83,34 +83,28 @@ def build_follow_up_question(current_answer, top_n_data):
     if is_in_top_n:
         # 路径 A: 内部成员 (PEER REVIEW)
         prompt_body = f"""
-### BACKGROUND:
-You previously solved this problem and reached the conclusion: **{current_answer}**. 
-Your reasoning is currently among the **Top 4 most confident** paths identified by the system.
+Previously, you concluded: {current_answer} 
 
-### PEER REVIEW POOL:
-Below are the Top 4 high-confidence candidates (including your own {current_answer}). Please review their reasoning summaries carefully:
+Other independent reasoning paths produced the following high-confidence candidates:
 {candidate_display_text}
 
-### RANKED EVALUATION PROTOCOL:
-As a member of this elite panel, you must perform a rigorous cross-verification:
-1. **Divergence Check**: Identify where your reasoning differs from the other 3 candidates. Did they address a constraint or edge case you missed?
-2. **Logical Ranking**: Rank all 4 candidates based on mathematical soundness. Even if you maintain your stance, you must provide a full preference order for all 4 options.
+### EVALUATION PROTOCOL:
+1. **Divergence Analysis**: Identify the specific logical junction where your reasoning differs from these alternatives.
+2. **Objective Verification**: Evaluate each path based on its mathematical and logical soundness.
+3. **Final Decision**: Maintain your conclusion if the logic remains robust, or pivot if you find a definitive flaw. Avoid changing your answer solely for the sake of alignment.
 """
     else:
         # 场景 B：当前 Trace 不在精英组 (External Arbitration)
         prompt_body = f"""
-### BACKGROUND:
-You previously reached the conclusion: **{current_answer}**. 
-However, after a system-wide screening, other reasoning paths have demonstrated significantly higher logical confidence scores than yours.
+Previously, you concluded: {current_answer} 
 
-### ELITE CANDIDATE POOL (TOP 4):
-Below are the 4 most confident candidate answers and their reasoning summaries. You must evaluate these objectively:
+Other independent reasoning paths produced the following high-confidence candidates:
 {candidate_display_text}
 
-### RANKED ARBITRATION PROTOCOL:
-You are now acting as an independent arbitrator. Since your initial logic fell outside the top tier, you must evaluate these 4 elite candidates:
-1. **Critical Review**: Analyze the methodologies of these Top 4 paths. Which one is most likely to be correct?
-2. **Ranked Preference**: Rank these 4 candidates from most probable to least probable. Do not include your original answer {current_answer} in the ranking unless it matches one of the Top 4.
+### EVALUATION PROTOCOL:
+1. **Divergence Analysis**: Identify the specific logical junction where your reasoning differs from these alternatives.
+2. **Objective Verification**: Evaluate each path based on its mathematical and logical soundness.
+3. **Final Decision**: Maintain your conclusion if the logic remains robust, or pivot if you find a definitive flaw. Avoid changing your answer solely for the sake of alignment.
 """
 
     # 统一的输出格式要求：强制使用 \boxed 排序
