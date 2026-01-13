@@ -108,16 +108,8 @@ Other independent reasoning paths produced the following high-confidence candida
 """
 
     # 统一的输出格式要求：强制使用 \boxed 排序
-    instruction_suffix = """
-### OUTPUT FORMAT:
-1. **Justification**: Briefly explain the strengths/weaknesses of each candidate.
-2. **Final Ranking Summary**: At the very end, you MUST summarize your final ranking in a single LaTeX box using the format: `\\boxed{1:Ans > 2:Ans > 3:Ans > 4:Ans}`.
 
-Example: If you rank 100 first, 20 second, 50 third, and 10 fourth, output:
-**FINAL RANKING: \\boxed{1:100 > 2:20 > 3:50 > 4:10}**
-"""
-
-    full_prompt = prompt_body.strip() + "\n" + instruction_suffix.strip()
+    full_prompt = prompt_body.strip() + "\n\nPut your final answer within \\boxed{}"
     return full_prompt
 
 def calculate_token_confs_from_logprobs(logprobs: List[Dict[int, Any]]) -> List[float]:

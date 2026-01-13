@@ -47,7 +47,7 @@ for GLOBAL_ID in $(seq "$START_INDEX" "$END_INDEX"); do
     QID=$(( GLOBAL_ID % QUESTIONS_PER_DATASET ))
     DATASET_NAME=${DATASETS[$DATASET_INDEX]}
 
-    OUT_DIR="data/processed/${DATASET_NAME}/pool_information_v5"
+    OUT_DIR="data/processed/${DATASET_NAME}/pool_information_v4_fixed"
     OUT_PATH="${OUT_DIR}/${DATASET_NAME}_${QID}_deepconflow_self_check.jsonl"
 
     mkdir -p "$OUT_DIR"

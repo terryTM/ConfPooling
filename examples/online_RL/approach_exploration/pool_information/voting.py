@@ -140,9 +140,9 @@ def data_loading(base_dir, dataname, is_followup=False):
                 ans = extract_boxed_answer(item.get("trace_2", "")) 
                 conf = np.min(item.get("group_confidences_2", np.nan))
                 is_topn = item.get("is_topn", False)
-                if is_topn_true_count<=5:
-                    is_topn = True
-                # is_topn = True
+                # if is_topn_true_count<=5:
+                #     is_topn = True
+                
                 if ans and (base_ans is not None) and is_topn:
                     results[qid].append((base_ans, ans, conf))
         else:

@@ -6,7 +6,7 @@
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=3:00:00
-#SBATCH --output=logs/grid_run_4_1.log
+#SBATCH --output=logs/grid_run_5_rec.log
 
 # ---- 1. 加载必要模块 ----
 source ~/.bashrc
@@ -20,15 +20,15 @@ cd ~/Projects/Method/deepconf
 
 # 参数取值
 datanames=("aime_2025" "aime_2024" "brumo_2025" "hmmt_2025")
-versions=("4")
+versions=("5")
 # ifcnts=("True" "False")
 
 # 遍历所有组合
 for d in "${datanames[@]}"; do
   for v in "${versions[@]}"; do
-    echo ">>> Running dataname=$d, version=$v at $(date)" >> logs/grid_run_4_1.log
-    python examples/online_RL/approach_exploration/pool_information/voting.py --dataname "$d" --version "$v"  >> logs/grid_run_4_1.log 2>&1
-    echo ">>> Finished dataname=$d, version=$v at $(date)" >> logs/grid_run_4_1.log
-    echo "" >> logs/grid_run_4_1.log
+    echo ">>> Running dataname=$d, version=$v at $(date)" >> logs/grid_run_5_rec.log
+    python /home/yz54720/Projects/Method/deepconf/examples/online_RL/approach_exploration/pool_information/voting_ranker.py --dataname "$d" --version "$v" --method "recursive" >> logs/grid_run_5_rec.log 2>&1
+    echo ">>> Finished dataname=$d, version=$v at $(date)" >> logs/grid_run_5_rec.log
+    echo "" >> logs/grid_run_5_rec.log
   done
 done
